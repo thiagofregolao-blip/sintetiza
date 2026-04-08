@@ -75,7 +75,7 @@ export default function DigestCard({ digest }: DigestCardProps) {
       : summary;
 
   return (
-    <Link href={`/digest/${digest.id}`} className="block group">
+    <Link href={`/digest?id=${digest.id}`} className="block group">
       <div className="bg-[#060e20] p-6 rounded-xl border border-[#3c4a3d]/10 hover:border-[#4ff07f]/20 transition-colors">
         {/* Header */}
         <div className="flex items-center justify-between mb-3">

@@ -3,6 +3,7 @@ import cors from 'cors'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
 import dotenv from 'dotenv'
+import path from 'path'
 
 import { testConnection } from './database/connection'
 import { runMigrations } from './database/migrate'
@@ -61,9 +62,23 @@ app.use('/api/auth', authRoutes)
 app.use('/api/whatsapp', whatsappRoutes)
 app.use('/api/digests', digestRoutes)
 
-// 404
-app.use((_, res) => {
-  res.status(404).json({ success: false, error: 'Rota não encontrada' })
+// ============================================
+// Frontend — servir Next.js static export
+// ============================================
+const frontendPath = path.join(__dirname, '..', 'frontend', 'out')
+app.use(express.static(frontendPath))
+
+// SPA fallback: qualquer rota que não seja /api/* serve o index.html
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path === '/health') {
+    return res.status(404).json({ success: false, error: 'Rota não encontrada' })
+  }
+  const indexPath = path.join(frontendPath, 'index.html')
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      res.status(404).json({ success: false, error: 'Frontend não encontrado' })
+    }
+  })
 })
 
 // Error handler global

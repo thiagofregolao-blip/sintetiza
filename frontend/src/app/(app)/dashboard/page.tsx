@@ -287,7 +287,7 @@ export default function DashboardPage() {
                   </p>
                   <p className="text-sm text-[#dae2fd]">{urgentItems[0].message}</p>
                   <Link
-                    href={`/digest/${digest?.id || 'mock-1'}`}
+                    href={`/digest?id=${digest?.id || 'mock-1'}`}
                     className="text-xs text-[#ffb4ab] hover:underline mt-2 inline-block"
                   >
                     Ver Mensagem &rarr;
@@ -352,7 +352,7 @@ export default function DashboardPage() {
               {groups.slice(0, 6).map((group) => (
                 <Link
                   key={group.id}
-                  href={`/digest/${group.id}`}
+                  href={`/digest?id=${group.id}`}
                   className="block"
                 >
                   <div className="bg-[#131b2e] p-4 rounded-xl border border-transparent hover:border-[#4ff07f]/20 transition-colors flex items-center gap-3">
