@@ -6,71 +6,132 @@ import { generateDigest } from '../digest/digest.service'
 import { purgeExpiredMessages } from '../messages/messages.service'
 import { sendUrgentAlert } from '../digest/delivery.service'
 
-const redisConnection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
-  maxRetriesPerRequest: null,
-})
-
 // ============================================
-// Filas BullMQ
+// Redis — opcional (app funciona sem ele, sem filas)
 // ============================================
+let redisConnection: IORedis | null = null
+let alertQueueInstance: Queue | null = null
+let digestQueueInstance: Queue | null = null
 
-// Fila de alertas urgentes (mensagens score 5)
-export const alertQueue = new Queue('urgent-alerts', { connection: redisConnection })
-
-// Fila de geração de digests (evita sobrecarregar Claude API)
-export const digestQueue = new Queue('digest-generation', { connection: redisConnection })
-
-// ============================================
-// Workers
-// ============================================
-
-// Worker de alertas urgentes
-const alertWorker = new Worker(
-  'urgent-alerts',
-  async (job) => {
-    const { userId, chatName, senderName, preview } = job.data
-    await sendUrgentAlert(userId, { chatName, senderName, preview })
-  },
-  { connection: redisConnection, concurrency: 5 }
-)
-
-alertWorker.on('failed', (job, err) => {
-  console.error(`[AlertWorker] Job ${job?.id} falhou:`, err.message)
-})
-
-// Worker de geração de digests
-const digestWorker = new Worker(
-  'digest-generation',
-  async (job) => {
-    const { userId, periodStart, periodEnd, format, channels, scheduleId } = job.data
-
-    await generateDigest(userId, {
-      periodStart: new Date(periodStart),
-      periodEnd: new Date(periodEnd),
-      format,
-      deliveryChannels: channels,
-      scheduleId,
-      type: 'daily',
-    })
-  },
-  {
-    connection: redisConnection,
-    concurrency: 3, // Máx 3 digests simultâneos (cuida com tokens Claude)
+const initRedis = () => {
+  const redisUrl = process.env.REDIS_URL
+  if (!redisUrl) {
+    console.warn('[Redis] REDIS_URL não configurada. BullMQ desabilitado — digests rodarão inline.')
+    return false
   }
-)
 
-digestWorker.on('completed', (job) => {
-  console.log(`[DigestWorker] Job ${job.id} concluído para usuário ${job.data.userId}`)
-})
+  try {
+    redisConnection = new IORedis(redisUrl, {
+      maxRetriesPerRequest: null,
+      lazyConnect: true,
+    })
 
-digestWorker.on('failed', (job, err) => {
-  console.error(`[DigestWorker] Job ${job?.id} falhou:`, err.message)
-})
+    redisConnection.on('error', (err) => {
+      console.error('[Redis] Erro de conexão:', err.message)
+    })
+
+    alertQueueInstance = new Queue('urgent-alerts', { connection: redisConnection })
+    digestQueueInstance = new Queue('digest-generation', { connection: redisConnection })
+
+    return true
+  } catch (err) {
+    console.warn('[Redis] Falha ao conectar:', (err as Error).message)
+    return false
+  }
+}
+
+// Exportar queues com fallback seguro
+export const alertQueue = {
+  add: async (name: string, data: any, opts?: any) => {
+    if (alertQueueInstance) {
+      return alertQueueInstance.add(name, data, opts)
+    }
+    console.log(`[AlertQueue] Redis indisponível. Alerta descartado: ${name}`)
+    return null
+  },
+}
+
+export const digestQueue = {
+  add: async (name: string, data: any, opts?: any) => {
+    if (digestQueueInstance) {
+      return digestQueueInstance.add(name, data, opts)
+    }
+    // Fallback: executar digest inline (sem fila)
+    console.log(`[DigestQueue] Redis indisponível. Executando digest inline.`)
+    try {
+      await generateDigest(data.userId, {
+        periodStart: new Date(data.periodStart),
+        periodEnd: new Date(data.periodEnd),
+        format: data.format,
+        deliveryChannels: data.channels,
+        scheduleId: data.scheduleId,
+        type: 'daily',
+      })
+    } catch (err) {
+      console.error('[DigestQueue] Erro no digest inline:', (err as Error).message)
+    }
+    return { id: 'inline-' + Date.now() }
+  },
+}
+
+// ============================================
+// Workers (só iniciam se Redis disponível)
+// ============================================
+const startWorkers = () => {
+  if (!redisConnection) return
+
+  const alertWorker = new Worker(
+    'urgent-alerts',
+    async (job) => {
+      const { userId, chatName, senderName, preview } = job.data
+      await sendUrgentAlert(userId, { chatName, senderName, preview })
+    },
+    { connection: redisConnection, concurrency: 5 }
+  )
+
+  alertWorker.on('failed', (job, err) => {
+    console.error(`[AlertWorker] Job ${job?.id} falhou:`, err.message)
+  })
+
+  const digestWorker = new Worker(
+    'digest-generation',
+    async (job) => {
+      const { userId, periodStart, periodEnd, format, channels, scheduleId } = job.data
+
+      await generateDigest(userId, {
+        periodStart: new Date(periodStart),
+        periodEnd: new Date(periodEnd),
+        format,
+        deliveryChannels: channels,
+        scheduleId,
+        type: 'daily',
+      })
+    },
+    {
+      connection: redisConnection,
+      concurrency: 3,
+    }
+  )
+
+  digestWorker.on('completed', (job) => {
+    console.log(`[DigestWorker] Job ${job.id} concluído para usuário ${job.data.userId}`)
+  })
+
+  digestWorker.on('failed', (job, err) => {
+    console.error(`[DigestWorker] Job ${job?.id} falhou:`, err.message)
+  })
+}
 
 // ============================================
 // Cron principal — verifica schedules a cada minuto
 // ============================================
 export const startScheduler = () => {
+  // Tentar conectar Redis (não bloqueia se falhar)
+  const redisOk = initRedis()
+  if (redisOk) {
+    startWorkers()
+  }
+
   // Verificar schedules a cada minuto
   cron.schedule('* * * * *', async () => {
     await processSchedules()
@@ -88,7 +149,7 @@ export const startScheduler = () => {
     console.log('[Cron] Reset de message_count_today')
   })
 
-  console.log('[Scheduler] Iniciado')
+  console.log(`[Scheduler] Iniciado (Redis: ${redisOk ? 'ON' : 'OFF'})`)
 }
 
 // ============================================
@@ -96,7 +157,6 @@ export const startScheduler = () => {
 // ============================================
 const processSchedules = async () => {
   try {
-    // Buscar schedules que devem rodar agora
     const result = await db.query(
       `SELECT s.*, u.timezone
        FROM schedules s
@@ -106,14 +166,11 @@ const processSchedules = async () => {
     )
 
     for (const schedule of result.rows) {
-      // Verificar se o cron bate com o horário atual no timezone do usuário
       if (!shouldRunNow(schedule.cron_expression, schedule.timezone)) continue
 
-      // Calcular período (últimas 24h)
       const periodEnd = new Date()
       const periodStart = new Date(periodEnd.getTime() - 24 * 60 * 60 * 1000)
 
-      // Enfileirar geração
       await digestQueue.add(
         'generate-digest',
         {
@@ -130,7 +187,6 @@ const processSchedules = async () => {
         }
       )
 
-      // Atualizar last_run e calcular próximo next_run
       await db.query(
         `UPDATE schedules SET
            last_run_at = NOW(),
@@ -144,8 +200,7 @@ const processSchedules = async () => {
   }
 }
 
-const shouldRunNow = (cronExpression: string, timezone: string): boolean => {
-  // Verificação simplificada — node-cron lida com isso
+const shouldRunNow = (cronExpression: string, _timezone: string): boolean => {
   return cron.validate(cronExpression)
 }
 
@@ -171,7 +226,7 @@ export const triggerManualDigest = async (
   )
   const schedule = scheduleResult.rows[0]
 
-  const job = await digestQueue.add(
+  const result = await digestQueue.add(
     'manual-digest',
     {
       userId,
@@ -180,8 +235,8 @@ export const triggerManualDigest = async (
       format: options.format || schedule?.report_format || 'detailed',
       channels: options.channels || schedule?.delivery_channels || ['dashboard'],
     },
-    { priority: 1 } // Manual tem prioridade
+    { priority: 1 }
   )
 
-  return job.id!
+  return (result as any)?.id || 'inline-' + Date.now()
 }
