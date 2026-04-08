@@ -1,5 +1,5 @@
 import { db } from '../../database/connection'
-import { Message, UnipileWebhookEvent, DigestContext } from '../../types'
+import { Message, UnipileWebhookEvent } from '../../types'
 import { alertQueue } from '../scheduler/queues'
 
 // ============================================

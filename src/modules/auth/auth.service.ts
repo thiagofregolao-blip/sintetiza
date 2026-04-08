@@ -94,7 +94,7 @@ export const refreshAccessToken = async (refreshToken: string): Promise<{ access
   const access_token = jwt.sign(
     { sub: user.id, email: user.email, plan: user.plan },
     JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
+    { expiresIn: JWT_EXPIRES_IN as any }
   )
 
   return { access_token }
@@ -164,7 +164,7 @@ const generateTokens = async (user: User): Promise<AuthResponse> => {
   const access_token = jwt.sign(
     { sub: user.id, email: user.email, plan: user.plan },
     JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
+    { expiresIn: JWT_EXPIRES_IN as any }
   )
 
   const refresh_token = uuidv4()

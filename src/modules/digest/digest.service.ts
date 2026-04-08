@@ -329,6 +329,7 @@ const buildFallbackDigest = (context: DigestContext, periodLabel: string): Diges
     chat_id: g.chat_id,
     chat_name: g.chat_name,
     message_count: g.message_count,
+    participant_count: 0,
     main_topics: [],
     decisions: [],
     mentions: [],
@@ -345,7 +346,13 @@ const buildFallbackDigest = (context: DigestContext, periodLabel: string): Diges
     urgency_level: 1 as const,
     last_message_preview: '',
   })),
-  stats: context.stats,
+  stats: {
+    total_messages: context.stats.total_messages,
+    active_groups: context.groups.length,
+    active_individuals: context.individuals.length,
+    mentions: context.stats.total_mentions,
+    media_count: context.stats.total_media,
+  },
   generated_at: new Date().toISOString(),
 })
 
