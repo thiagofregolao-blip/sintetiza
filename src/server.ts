@@ -66,34 +66,21 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 })
 
 // ============================================
-// Inicialização
+// Inicialização — HTTP primeiro, DB/scheduler em background
+// Railway precisa que a porta responda rápido
 // ============================================
-const start = async () => {
-  await testConnection()
-  startScheduler()
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`[Server] Rodando na porta ${PORT}`)
 
-  app.listen(PORT, () => {
-    console.log(`
-╔═══════════════════════════════════════╗
-║     WhatsApp Digest SaaS              ║
-║     Rodando na porta ${PORT}             ║
-╚═══════════════════════════════════════╝
-
-Endpoints disponíveis:
-  POST  /api/auth/register
-  POST  /api/auth/login
-  GET   /api/auth/me
-  POST  /api/whatsapp/connect
-  GET   /api/whatsapp/status
-  GET   /api/whatsapp/groups
-  POST  /api/whatsapp/webhook  ← Unipile envia aqui
-  GET   /api/digests
-  POST  /api/digests/manual
-  PUT   /api/digests/schedule/config
-    `)
-  })
-}
-
-start().catch(console.error)
+  // Conectar DB e iniciar scheduler em background (não bloqueia HTTP)
+  testConnection()
+    .then(() => {
+      startScheduler()
+      console.log('[Server] DB conectado e scheduler iniciado')
+    })
+    .catch((err) => {
+      console.error('[Server] Falha ao conectar DB:', err)
+    })
+})
 
 export default app
