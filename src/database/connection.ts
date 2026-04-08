@@ -38,12 +38,21 @@ export const db = {
   },
 }
 
-export const testConnection = async () => {
-  try {
-    const res = await db.query('SELECT NOW()')
-    console.log('[DB] Conectado:', res.rows[0].now)
-  } catch (err) {
-    console.error('[DB] Erro na conexão:', err)
-    process.exit(1)
+export const testConnection = async (retries = 5, delay = 3000) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await db.query('SELECT NOW()')
+      console.log('[DB] Conectado:', res.rows[0].now)
+      return
+    } catch (err) {
+      console.error(`[DB] Tentativa ${attempt}/${retries} falhou:`, (err as Error).message)
+      if (attempt === retries) {
+        console.error('[DB] Todas as tentativas falharam. Encerrando.')
+        process.exit(1)
+      }
+      console.log(`[DB] Aguardando ${delay / 1000}s antes da próxima tentativa...`)
+      await new Promise(resolve => setTimeout(resolve, delay))
+      delay = Math.min(delay * 1.5, 15000) // backoff até 15s
+    }
   }
 }
