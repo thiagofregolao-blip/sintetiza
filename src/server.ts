@@ -19,6 +19,10 @@ const PORT = process.env.PORT || 3000
 // ============================================
 // Middlewares globais
 // ============================================
+
+// Railway roda atrás de proxy — necessário para rate-limit e IP correto
+app.set('trust proxy', 1)
+
 app.use(helmet())
 app.use(cors({
   origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
@@ -30,6 +34,7 @@ app.use(rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   max: 100,
   message: { success: false, error: 'Muitas requisições. Tente novamente em 15 minutos.' },
+  validate: { xForwardedForHeader: false },
 }))
 
 // Rate limiting mais apertado para auth
@@ -37,6 +42,7 @@ app.use('/api/auth/login', rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   message: { success: false, error: 'Muitas tentativas de login.' },
+  validate: { xForwardedForHeader: false },
 }))
 
 // Parse JSON (ANTES das rotas, mas DEPOIS do webhook que precisa do raw body)

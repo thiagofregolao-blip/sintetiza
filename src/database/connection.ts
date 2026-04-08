@@ -3,11 +3,17 @@ import dotenv from 'dotenv'
 
 dotenv.config()
 
+const dbUrl = process.env.DATABASE_URL
+if (!dbUrl) {
+  console.warn('[DB] DATABASE_URL não configurada! Rotas que precisam de banco vão falhar.')
+}
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: dbUrl || 'postgresql://localhost:5432/whatsapp_digest',
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 5000,
+  ssl: dbUrl?.includes('railway') ? { rejectUnauthorized: false } : undefined,
 })
 
 pool.on('error', (err) => {
@@ -47,8 +53,8 @@ export const testConnection = async (retries = 5, delay = 3000) => {
     } catch (err) {
       console.error(`[DB] Tentativa ${attempt}/${retries} falhou:`, (err as Error).message)
       if (attempt === retries) {
-        console.error('[DB] Todas as tentativas falharam. Encerrando.')
-        process.exit(1)
+        console.error('[DB] Todas as tentativas falharam. App continua sem DB.')
+        return
       }
       console.log(`[DB] Aguardando ${delay / 1000}s antes da próxima tentativa...`)
       await new Promise(resolve => setTimeout(resolve, delay))
