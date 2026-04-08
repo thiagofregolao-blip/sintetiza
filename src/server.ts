@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit'
 import dotenv from 'dotenv'
 
 import { testConnection } from './database/connection'
+import { runMigrations } from './database/migrate'
 import { startScheduler } from './modules/scheduler/queues'
 
 import authRoutes from './modules/auth/auth.routes'
@@ -80,9 +81,10 @@ app.listen(Number(PORT), '0.0.0.0', () => {
 
   // Conectar DB e iniciar scheduler em background (não bloqueia HTTP)
   testConnection()
+    .then(() => runMigrations())
     .then(() => {
       startScheduler()
-      console.log('[Server] DB conectado e scheduler iniciado')
+      console.log('[Server] DB conectado, migrations OK, scheduler iniciado')
     })
     .catch((err) => {
       console.error('[Server] Falha ao conectar DB:', err)
