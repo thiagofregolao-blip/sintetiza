@@ -5,93 +5,26 @@ import { purgeExpiredMessages } from '../messages/messages.service'
 import { sendUrgentAlert } from '../digest/delivery.service'
 
 // ============================================
-// Redis — só inicializa se REDIS_URL estiver configurada
+// Sem Redis/BullMQ — execução direta via cron
 // ============================================
-const REDIS_URL = process.env.REDIS_URL
 
-let digestQueueInstance: any = null
-let alertQueueInstance: any = null
-
-if (REDIS_URL) {
-  // Import dinâmico — só carrega bullmq/ioredis se Redis estiver configurado
-  try {
-    const IORedis = require('ioredis')
-    const { Queue, Worker } = require('bullmq')
-
-    const redisConnection = new IORedis(REDIS_URL, {
-      maxRetriesPerRequest: null,
-    })
-
-    redisConnection.on('error', () => {
-      // Silenciar após primeiro log
-    })
-
-    alertQueueInstance = new Queue('urgent-alerts', { connection: redisConnection })
-    digestQueueInstance = new Queue('digest-generation', { connection: redisConnection })
-
-    // Workers
-    const alertWorker = new Worker(
-      'urgent-alerts',
-      async (job: any) => {
-        const { userId, chatName, senderName, preview } = job.data
-        await sendUrgentAlert(userId, { chatName, senderName, preview })
-      },
-      { connection: redisConnection, concurrency: 5 }
-    )
-    alertWorker.on('failed', (job: any, err: Error) => {
-      console.error(`[AlertWorker] Job ${job?.id} falhou:`, err.message)
-    })
-
-    const digestWorker = new Worker(
-      'digest-generation',
-      async (job: any) => {
-        const { userId, periodStart, periodEnd, format, channels, scheduleId } = job.data
-        await generateDigest(userId, {
-          periodStart: new Date(periodStart),
-          periodEnd: new Date(periodEnd),
-          format,
-          deliveryChannels: channels,
-          scheduleId,
-          type: 'daily',
-        })
-      },
-      { connection: redisConnection, concurrency: 3 }
-    )
-    digestWorker.on('completed', (job: any) => {
-      console.log(`[DigestWorker] Job ${job.id} concluído`)
-    })
-    digestWorker.on('failed', (job: any, err: Error) => {
-      console.error(`[DigestWorker] Job ${job?.id} falhou:`, err.message)
-    })
-
-    console.log('[Redis] Conectado. BullMQ ativo.')
-  } catch (err) {
-    console.warn('[Redis] Falha ao inicializar BullMQ:', (err as Error).message)
-  }
-} else {
-  console.log('[Redis] REDIS_URL não configurada. BullMQ desabilitado.')
-}
-
-// ============================================
-// Queue wrappers com fallback inline
-// ============================================
 export const alertQueue = {
-  add: async (name: string, data: any, _opts?: any) => {
-    if (alertQueueInstance) {
-      return alertQueueInstance.add(name, data, _opts)
+  add: async (_name: string, data: any, _opts?: any) => {
+    try {
+      await sendUrgentAlert(data.userId, {
+        chatName: data.chatName,
+        senderName: data.senderName,
+        preview: data.preview,
+      })
+    } catch (err) {
+      console.error('[Alert] Erro:', (err as Error).message)
     }
-    console.log(`[Alert] ${data.chatName}: ${data.preview}`)
     return null
   },
 }
 
 export const digestQueue = {
-  add: async (name: string, data: any, _opts?: any) => {
-    if (digestQueueInstance) {
-      return digestQueueInstance.add(name, data, _opts)
-    }
-    // Fallback: rodar inline
-    console.log('[Digest] Executando inline (sem Redis)')
+  add: async (_name: string, data: any, _opts?: any) => {
     try {
       await generateDigest(data.userId, {
         periodStart: new Date(data.periodStart),
@@ -102,15 +35,12 @@ export const digestQueue = {
         type: 'daily',
       })
     } catch (err) {
-      console.error('[Digest] Erro inline:', (err as Error).message)
+      console.error('[Digest] Erro:', (err as Error).message)
     }
-    return { id: 'inline-' + Date.now() }
+    return { id: 'direct-' + Date.now() }
   },
 }
 
-// ============================================
-// Cron — funciona com ou sem Redis
-// ============================================
 export const startScheduler = () => {
   cron.schedule('* * * * *', async () => {
     await processSchedules()
@@ -125,7 +55,7 @@ export const startScheduler = () => {
     await db.query('UPDATE groups SET message_count_today = 0')
   })
 
-  console.log('[Scheduler] Iniciado')
+  console.log('[Scheduler] Iniciado (modo direto, sem Redis)')
 }
 
 const processSchedules = async () => {
@@ -181,5 +111,5 @@ export const triggerManualDigest = async (
     channels: options.channels || schedule?.delivery_channels || ['dashboard'],
   })
 
-  return (result as any)?.id || 'inline-' + Date.now()
+  return (result as any)?.id || 'direct-' + Date.now()
 }
