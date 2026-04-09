@@ -35,30 +35,33 @@ export const initiateConnection = async (userId: string): Promise<ConnectWhatsap
     }
   }
 
-  // Criar nova conta no Unipile
+  // Criar nova conta no Unipile (formato real da API)
   const response = await fetch(`${UNIPILE_BASE_URL}/api/v1/accounts`, {
     method: 'POST',
     headers: unipileHeaders,
     body: JSON.stringify({
       provider: 'WHATSAPP',
-      // Webhook URL para receber mensagens
-      webhook_url: `${process.env.APP_URL}/api/whatsapp/webhook`,
     }),
   })
 
   if (!response.ok) {
     const err = await response.text()
-    throw new Error(`Erro Unipile: ${err}`)
+    console.error('[Unipile] Erro ao criar conta:', response.status, err)
+    throw new Error(`Erro Unipile (${response.status}): ${err}`)
   }
 
   const data = await response.json() as {
     object: string
     account_id: string
-    checkpoint?: { qrcode?: { data: string } }
+    checkpoint?: { type: string; qrcode: string }
   }
 
-  const qrCode = data.checkpoint?.qrcode?.data
+  console.log('[Unipile] Resposta /accounts:', JSON.stringify(data).substring(0, 200))
+
+  // qrcode é uma string direta, não um objeto com .data
+  const qrCode = data.checkpoint?.qrcode
   if (!qrCode) {
+    console.error('[Unipile] QR Code ausente na resposta:', data)
     throw new Error('QR Code não retornado pelo Unipile')
   }
 
