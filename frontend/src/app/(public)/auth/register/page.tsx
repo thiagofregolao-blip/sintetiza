@@ -45,13 +45,13 @@ export default function RegisterPage() {
       // Check WA session
       try {
         const status = await getWhatsappStatus();
-        if (status?.connected) {
-          router.push('/dashboard');
+        if (status?.status === 'connected') {
+          window.location.href = '/dashboard';
         } else {
-          router.push('/onboarding/connect');
+          window.location.href = '/onboarding/connect';
         }
       } catch {
-        router.push('/onboarding/connect');
+        window.location.href = '/onboarding/connect';
       }
     } catch (err: any) {
       setError(err.message || 'Erro ao criar conta. Tente novamente.');

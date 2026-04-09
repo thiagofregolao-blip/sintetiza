@@ -171,6 +171,48 @@ export const saveMessage = async (
 }
 
 // ============================================
+// listMessages — para a página de Mensagens do frontend
+// ============================================
+export const listMessages = async (
+  userId: string,
+  options: {
+    groupId?: string
+    limit?: number
+    offset?: number
+    minUrgency?: number
+    onlyMentions?: boolean
+  } = {}
+): Promise<Message[]> => {
+  const params: unknown[] = [userId]
+  let query = `
+    SELECT m.*, g.name AS group_name
+    FROM messages m
+    LEFT JOIN groups g ON g.id = m.group_id
+    WHERE m.user_id = $1
+  `
+  let i = 2
+
+  if (options.groupId) {
+    query += ` AND m.group_id = $${i++}`
+    params.push(options.groupId)
+  }
+  if (options.minUrgency) {
+    query += ` AND m.urgency_score >= $${i++}`
+    params.push(options.minUrgency)
+  }
+  if (options.onlyMentions) {
+    query += ` AND m.is_mention = true`
+  }
+
+  query += ` ORDER BY m.sent_at DESC LIMIT $${i++} OFFSET $${i++}`
+  params.push(options.limit || 50)
+  params.push(options.offset || 0)
+
+  const result = await db.query(query, params)
+  return result.rows
+}
+
+// ============================================
 // getMessagesByPeriod — para geração do digest
 // ============================================
 export const getMessagesByPeriod = async (

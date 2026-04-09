@@ -92,11 +92,24 @@ export function generateManualDigest(data: { period_hours: number; format: strin
   });
 }
 
-export function updateSchedule(data: { cron_expression: string; delivery_channels: string[]; report_format: string }) {
+export function updateSchedule(data: {
+  cron_expression?: string
+  delivery_channels?: string[]
+  report_format?: string
+  is_active?: boolean
+}) {
   return api('/api/digests/schedule/config', {
     method: 'PUT',
     body: JSON.stringify(data),
   });
+}
+
+export function getSchedule() {
+  return api('/api/digests/schedule/config');
+}
+
+export function getKeywords() {
+  return api('/api/digests/keywords/list');
 }
 
 export function addKeyword(data: { word: string; type: string }) {
@@ -110,4 +123,25 @@ export function deleteKeyword(id: string) {
   return api(`/api/digests/keywords/${id}`, {
     method: 'DELETE',
   });
+}
+
+export function getMessages(opts: {
+  groupId?: string
+  limit?: number
+  offset?: number
+  minUrgency?: number
+  onlyMentions?: boolean
+} = {}) {
+  const params = new URLSearchParams()
+  if (opts.groupId) params.set('group_id', opts.groupId)
+  if (opts.limit) params.set('limit', String(opts.limit))
+  if (opts.offset) params.set('offset', String(opts.offset))
+  if (opts.minUrgency) params.set('min_urgency', String(opts.minUrgency))
+  if (opts.onlyMentions) params.set('only_mentions', 'true')
+  const qs = params.toString()
+  return api(`/api/whatsapp/messages${qs ? '?' + qs : ''}`);
+}
+
+export function syncWhatsapp() {
+  return api('/api/whatsapp/sync', { method: 'POST' });
 }

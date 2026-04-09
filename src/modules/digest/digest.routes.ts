@@ -91,23 +91,56 @@ router.put('/schedule/config', authenticate, async (req: Request, res: Response)
       }
     }
 
-    await db.query(
-      `INSERT INTO schedules (user_id, cron_expression, delivery_channels, report_format, is_active)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (user_id) DO UPDATE SET
-         cron_expression = COALESCE($2, schedules.cron_expression),
-         delivery_channels = COALESCE($3, schedules.delivery_channels),
-         report_format = COALESCE($4, schedules.report_format),
-         is_active = COALESCE($5, schedules.is_active),
-         updated_at = NOW()`,
-      [
-        req.user!.id,
-        data.cron_expression,
-        data.delivery_channels,
-        data.report_format,
-        data.is_active,
-      ]
+    // Verifica se já existe schedule; se sim, UPDATE; senão, INSERT
+    const existing = await db.query(
+      'SELECT id FROM schedules WHERE user_id = $1 LIMIT 1',
+      [req.user!.id]
     )
+
+    if (existing.rows.length > 0) {
+      // UPDATE campos fornecidos
+      const fields: string[] = []
+      const values: unknown[] = []
+      let idx = 1
+
+      if (data.cron_expression !== undefined) {
+        fields.push(`cron_expression = $${idx++}`)
+        values.push(data.cron_expression)
+      }
+      if (data.delivery_channels !== undefined) {
+        fields.push(`delivery_channels = $${idx++}`)
+        values.push(data.delivery_channels)
+      }
+      if (data.report_format !== undefined) {
+        fields.push(`report_format = $${idx++}`)
+        values.push(data.report_format)
+      }
+      if (data.is_active !== undefined) {
+        fields.push(`is_active = $${idx++}`)
+        values.push(data.is_active)
+      }
+
+      if (fields.length > 0) {
+        fields.push(`updated_at = NOW()`)
+        values.push(existing.rows[0].id)
+        await db.query(
+          `UPDATE schedules SET ${fields.join(', ')} WHERE id = $${idx}`,
+          values
+        )
+      }
+    } else {
+      await db.query(
+        `INSERT INTO schedules (user_id, cron_expression, delivery_channels, report_format, is_active)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          req.user!.id,
+          data.cron_expression || '0 22 * * *',
+          data.delivery_channels || ['dashboard'],
+          data.report_format || 'detailed',
+          data.is_active ?? true,
+        ]
+      )
+    }
 
     res.json({ success: true, message: 'Agendamento atualizado' })
   } catch (err: any) {

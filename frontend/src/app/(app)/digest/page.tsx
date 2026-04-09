@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
-import { getDigest } from '@/lib/api';
+import { getDigest, getDigests, generateManualDigest } from '@/lib/api';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -110,26 +110,176 @@ function DigestContent() {
   const [digest, setDigest] = useState<DigestData | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [noDigestToday, setNoDigestToday] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [periodHours, setPeriodHours] = useState(24);
+  const [format, setFormat] = useState<'short' | 'detailed' | 'executive'>('detailed');
+
+  async function load() {
+    setLoading(true);
+    setNoDigestToday(false);
+    try {
+      if (id) {
+        // Modo detalhe: buscar digest específico pelo ID
+        const data = await getDigest(id);
+        setDigest(data && data.id ? data : null);
+      } else {
+        // Modo "Hoje": buscar digest mais recente
+        const list = await getDigests();
+        const latest = Array.isArray(list) && list.length > 0 ? list[0] : null;
+        if (latest) {
+          // Checa se é de hoje
+          const digestDate = new Date(latest.created_at);
+          const today = new Date();
+          const isToday = digestDate.toDateString() === today.toDateString();
+          if (isToday) {
+            setDigest(latest);
+          } else {
+            setDigest(null);
+            setNoDigestToday(true);
+          }
+        } else {
+          setDigest(null);
+          setNoDigestToday(true);
+        }
+      }
+    } catch {
+      setDigest(null);
+      setNoDigestToday(!id);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    async function load() {
-      if (!id) { setDigest(mockDigest); setLoading(false); return; }
-      try {
-        const data = await getDigest(id);
-        setDigest(data && data.id ? data : mockDigest);
-      } catch {
-        setDigest(mockDigest);
-      } finally {
-        setLoading(false);
-      }
-    }
     load();
   }, [id]);
 
+  async function handleGenerate() {
+    setGenerating(true);
+    try {
+      await generateManualDigest({
+        period_hours: periodHours,
+        format,
+        channels: ['dashboard'],
+      });
+      // Espera um pouco e recarrega
+      setTimeout(() => load(), 1500);
+    } catch (err: any) {
+      alert(err?.message || 'Erro ao gerar resumo');
+      setGenerating(false);
+    }
+  }
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center h-full py-20">
         <div className="w-8 h-8 border-2 border-[#4ff07f] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Estado "Nenhum resumo de hoje" — mostra formulário para gerar
+  if (!digest && noDigestToday) {
+    const todayLabel = new Date().toLocaleDateString('pt-BR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+
+    return (
+      <div className="p-6 lg:p-8 max-w-3xl mx-auto">
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-[#dae2fd]">Resumo de Hoje</h1>
+          <p className="text-sm text-[#bbcbb9] mt-1 capitalize">{todayLabel}</p>
+        </div>
+
+        <div className="bg-[#060e20] rounded-xl p-8 mb-6 text-center">
+          <div className="w-20 h-20 rounded-full bg-[#131b2e] flex items-center justify-center mx-auto mb-5">
+            <span className="material-symbols-outlined text-[#4ff07f] text-[36px]">
+              auto_awesome
+            </span>
+          </div>
+          <h2 className="text-lg font-bold text-[#dae2fd] mb-2">
+            Nenhum resumo gerado hoje ainda
+          </h2>
+          <p className="text-sm text-[#bbcbb9] max-w-md mx-auto">
+            Configure o período e o formato abaixo e clique em &quot;Gerar resumo agora&quot; para
+            criar seu primeiro relatório do dia.
+          </p>
+        </div>
+
+        {/* Generator form */}
+        <div className="bg-[#060e20] rounded-xl p-6 space-y-6">
+          <div>
+            <label className="text-[10px] uppercase tracking-widest text-[#bbcbb9] font-bold block mb-3">
+              Período a analisar
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { h: 6, l: 'Últimas 6h' },
+                { h: 12, l: 'Últimas 12h' },
+                { h: 24, l: 'Últimas 24h' },
+              ].map((p) => (
+                <button
+                  key={p.h}
+                  onClick={() => setPeriodHours(p.h)}
+                  className={`py-3 rounded-lg text-sm font-semibold transition-colors ${
+                    periodHours === p.h
+                      ? 'bg-[#4ff07f] text-[#0b1326]'
+                      : 'bg-[#131b2e] text-[#bbcbb9] hover:text-[#dae2fd]'
+                  }`}
+                >
+                  {p.l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase tracking-widest text-[#bbcbb9] font-bold block mb-3">
+              Formato
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { k: 'short' as const, l: 'Curto' },
+                { k: 'detailed' as const, l: 'Detalhado' },
+                { k: 'executive' as const, l: 'Executivo' },
+              ].map((f) => (
+                <button
+                  key={f.k}
+                  onClick={() => setFormat(f.k)}
+                  className={`py-3 rounded-lg text-sm font-semibold transition-colors ${
+                    format === f.k
+                      ? 'bg-[#4ff07f] text-[#0b1326]'
+                      : 'bg-[#131b2e] text-[#bbcbb9] hover:text-[#dae2fd]'
+                  }`}
+                >
+                  {f.l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="w-full py-3 rounded-xl text-sm font-bold text-[#0b1326] bg-gradient-to-r from-[#4ff07f] to-[#25d366] hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
+          >
+            {generating ? (
+              <>
+                <div className="w-4 h-4 border-2 border-[#0b1326] border-t-transparent rounded-full animate-spin" />
+                Gerando resumo...
+              </>
+            ) : (
+              <>
+                <span className="material-symbols-outlined text-lg">auto_awesome</span>
+                Gerar resumo agora
+              </>
+            )}
+          </button>
+        </div>
       </div>
     );
   }

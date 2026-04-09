@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express'
 import crypto from 'crypto'
 import { authenticate } from '../../middleware/auth'
 import * as unipileService from './unipile.service'
-import { saveMessage } from '../messages/messages.service'
+import { saveMessage, listMessages } from '../messages/messages.service'
 import { UnipileWebhookEvent, ApiResponse } from '../../types'
 import { db } from '../../database/connection'
 import { handleQRStream, notifyQRUpdate, notifyAccountConnected } from './qr-stream'
@@ -86,6 +86,32 @@ router.post('/sync', authenticate, async (req: Request, res: Response) => {
     }
     await unipileService.syncGroups(req.user!.id, session.unipile_account_id)
     res.json({ success: true, message: 'Grupos sincronizados' })
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message })
+  }
+})
+
+// ============================================
+// GET /whatsapp/messages — listar mensagens
+// Query params: group_id, limit, offset, min_urgency, only_mentions
+// ============================================
+router.get('/messages', authenticate, async (req: Request, res: Response) => {
+  try {
+    const groupId = req.query.group_id as string | undefined
+    const limit = req.query.limit ? Number(req.query.limit) : 50
+    const offset = req.query.offset ? Number(req.query.offset) : 0
+    const minUrgency = req.query.min_urgency ? Number(req.query.min_urgency) : undefined
+    const onlyMentions = req.query.only_mentions === 'true'
+
+    const messages = await listMessages(req.user!.id, {
+      groupId,
+      limit,
+      offset,
+      minUrgency,
+      onlyMentions,
+    })
+
+    res.json({ success: true, data: messages } as ApiResponse)
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message })
   }
