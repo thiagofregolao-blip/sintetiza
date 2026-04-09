@@ -162,15 +162,58 @@ export const handleAccountConnected = async (
     [unipileAccountId, phoneNumber || null, displayName || null]
   )
 
-  // Sincronizar grupos após conexão
+  // Sincronizar grupos após conexão — com retry automático porque o
+  // Unipile demora para indexar os chats após o scan do QR Code
   const session = await db.query(
     'SELECT * FROM whatsapp_sessions WHERE unipile_account_id = $1',
     [unipileAccountId]
   )
 
   if (session.rows.length > 0) {
-    await syncGroups(session.rows[0].user_id, unipileAccountId)
+    const userId = session.rows[0].user_id
+    // Não aguarda — roda em background com retries
+    syncGroupsWithRetry(userId, unipileAccountId).catch((err) => {
+      console.error('[Unipile] Erro no syncGroupsWithRetry:', (err as Error).message)
+    })
   }
+}
+
+// ============================================
+// Sync com retries automáticos para aguardar Unipile indexar
+// ============================================
+const syncGroupsWithRetry = async (
+  userId: string,
+  unipileAccountId: string
+): Promise<void> => {
+  const delays = [0, 5000, 15000, 30000, 60000] // tentativas: imediato, 5s, 15s, 30s, 60s
+
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt] > 0) {
+      await new Promise((r) => setTimeout(r, delays[attempt]))
+    }
+
+    try {
+      await syncGroups(userId, unipileAccountId)
+
+      // Verifica se achou algo
+      const count = await db.query(
+        'SELECT COUNT(*) FROM groups WHERE user_id = $1',
+        [userId]
+      )
+      const groupsFound = parseInt(count.rows[0].count, 10)
+
+      if (groupsFound > 0) {
+        console.log(`[Unipile] syncGroupsWithRetry: ${groupsFound} grupos na tentativa ${attempt + 1}`)
+        return
+      }
+
+      console.log(`[Unipile] Tentativa ${attempt + 1}/${delays.length}: 0 grupos ainda (Unipile indexando...)`)
+    } catch (err) {
+      console.error(`[Unipile] Tentativa ${attempt + 1} falhou:`, (err as Error).message)
+    }
+  }
+
+  console.warn(`[Unipile] Após ${delays.length} tentativas, nenhum grupo foi encontrado para ${userId}`)
 }
 
 // ============================================
