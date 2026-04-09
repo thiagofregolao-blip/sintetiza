@@ -178,22 +178,41 @@ export const handleAccountConnected = async (
 // ============================================
 export const syncGroups = async (userId: string, unipileAccountId: string): Promise<void> => {
   try {
-    const response = await fetch(
-      `${UNIPILE_BASE_URL}/api/v1/chats?account_id=${unipileAccountId}&limit=100`,
-      { headers: unipileHeaders }
-    )
+    // Busca todas as páginas de chats (Unipile limita a 250 por página)
+    const allChats: Array<{
+      id: string
+      provider_id?: string
+      name?: string | null
+      type?: number
+      timestamp?: string
+    }> = []
+    let cursor: string | null = null
+    let pageCount = 0
+    const maxPages = 5 // até 1250 chats
 
-    if (!response.ok) return
+    do {
+      const url = new URL(`${UNIPILE_BASE_URL}/api/v1/chats`)
+      url.searchParams.set('account_id', unipileAccountId)
+      url.searchParams.set('limit', '250')
+      if (cursor) url.searchParams.set('cursor', cursor)
 
-    const data = await response.json() as {
-      items: Array<{
-        id: string
-        name?: string
-        is_group: boolean
-        attendees_count?: number
-        last_message_at?: string
-      }>
-    }
+      const response = await fetch(url.toString(), { headers: unipileHeaders })
+      if (!response.ok) {
+        console.error('[Unipile] Erro ao buscar chats:', response.status)
+        break
+      }
+
+      const data = await response.json() as {
+        items: typeof allChats
+        cursor: string | null
+      }
+
+      allChats.push(...(data.items || []))
+      cursor = data.cursor
+      pageCount++
+    } while (cursor && pageCount < maxPages)
+
+    console.log(`[Unipile] Total de chats: ${allChats.length}`)
 
     const session = await db.query(
       'SELECT id FROM whatsapp_sessions WHERE user_id = $1 AND unipile_account_id = $2',
@@ -203,16 +222,19 @@ export const syncGroups = async (userId: string, unipileAccountId: string): Prom
     if (session.rows.length === 0) return
     const sessionId = session.rows[0].id
 
-    for (const chat of data.items) {
-      if (!chat.is_group) continue
+    // Filtra apenas grupos (type === 1 ou provider_id terminando em @g.us)
+    const groups = allChats.filter(
+      c => c.type === 1 || c.provider_id?.endsWith('@g.us')
+    )
+    console.log(`[Unipile] Grupos encontrados: ${groups.length}`)
 
+    for (const chat of groups) {
       await db.query(
         `INSERT INTO groups
            (user_id, session_id, whatsapp_chat_id, name, participant_count, last_message_at, synced_at)
          VALUES ($1, $2, $3, $4, $5, $6, NOW())
          ON CONFLICT (user_id, whatsapp_chat_id) DO UPDATE SET
            name = $4,
-           participant_count = $5,
            last_message_at = $6,
            synced_at = NOW(),
            updated_at = NOW()`,
@@ -221,13 +243,13 @@ export const syncGroups = async (userId: string, unipileAccountId: string): Prom
           sessionId,
           chat.id,
           chat.name || 'Grupo sem nome',
-          chat.attendees_count || 0,
-          chat.last_message_at ? new Date(chat.last_message_at) : null,
+          0,
+          chat.timestamp ? new Date(chat.timestamp) : null,
         ]
       )
     }
 
-    console.log(`[Unipile] Sincronizados ${data.items.filter(c => c.is_group).length} grupos para usuário ${userId}`)
+    console.log(`[Unipile] Sincronizados ${groups.length} grupos para usuário ${userId}`)
   } catch (err) {
     console.error('[Unipile] Erro ao sincronizar grupos:', err)
   }
