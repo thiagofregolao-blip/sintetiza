@@ -25,10 +25,19 @@ export async function api(path: string, options: RequestInit = {}): Promise<any>
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || `Request failed with status ${res.status}`);
+    throw new Error(body.error || body.message || `Request failed with status ${res.status}`);
   }
 
-  return res.json();
+  const json = await res.json();
+  // Backend retorna { success, data, error, message }
+  // Desempacota o `data` automaticamente para o caller não precisar acessar res.data
+  if (json && typeof json === 'object' && 'success' in json) {
+    if (json.success === false) {
+      throw new Error(json.error || json.message || 'Erro desconhecido');
+    }
+    return json.data ?? json;
+  }
+  return json;
 }
 
 export function register(data: { email: string; password: string; name?: string; timezone?: string }) {
