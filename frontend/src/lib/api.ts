@@ -1,4 +1,6 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+// Em produção (servido pelo próprio Express), usa caminhos relativos.
+// Em dev, usa NEXT_PUBLIC_API_URL ou localhost:3000.
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;

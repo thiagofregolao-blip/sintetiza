@@ -26,7 +26,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const token = localStorage.getItem('access_token')
 
     if (!token) {
-      router.push('/auth/login')
+      // Hard redirect — funciona melhor com static export
+      window.location.href = '/auth/login'
       return
     }
 
@@ -47,15 +48,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         const isOnboarding = pathname.startsWith('/onboarding')
         const isConnected = sessionData?.status === 'connected'
         if (!isConnected && !isOnboarding) {
-          router.push('/onboarding/connect')
+          window.location.href = '/onboarding/connect'
+          return
         }
+        setLoading(false)
       } catch {
         // Auth failed — clear tokens and redirect
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
-        router.push('/auth/login')
-      } finally {
-        setLoading(false)
+        window.location.href = '/auth/login'
       }
     }
 
