@@ -19,7 +19,7 @@ export default function RegisterPage() {
   function validate(): string | null {
     if (!name.trim()) return 'Nome é obrigatório.';
     if (!email.includes('@') || !email.includes('.')) return 'E-mail inválido.';
-    if (password.length < 6) return 'A senha deve ter pelo menos 6 caracteres.';
+    if (password.length < 8) return 'A senha deve ter pelo menos 8 caracteres.';
     if (password !== confirmPassword) return 'As senhas não coincidem.';
     return null;
   }
