@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQRStream } from '@/lib/sse';
-import { getToken } from '@/lib/api';
+import { getToken, connectWhatsapp } from '@/lib/api';
 
 function StepDots({ current }: { current: number }) {
   return (
@@ -39,12 +39,38 @@ function ProgressBar({ step }: { step: number }) {
 export default function OnboardingConnectPage() {
   const router = useRouter();
   const [token, setToken] = useState('');
+  const [initialQr, setInitialQr] = useState<string | null>(null);
+  const [initError, setInitError] = useState<string | null>(null);
   const qr = useQRStream(token);
 
   useEffect(() => {
     const t = getToken();
     if (t) setToken(t);
   }, []);
+
+  // Inicia a conexão com o Unipile (gera QR Code) ao entrar na página
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await connectWhatsapp();
+        if (cancelled) return;
+        // Resposta: { session_id, qr_code, qr_expires_at }
+        if (res?.qr_code) {
+          setInitialQr(res.qr_code);
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        setInitError(err?.message || 'Erro ao iniciar conexão com WhatsApp');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   useEffect(() => {
     if (qr.status === 'connected') {
@@ -54,6 +80,17 @@ export default function OnboardingConnectPage() {
       return () => clearTimeout(timer);
     }
   }, [qr.status, router]);
+
+  // QR Code efetivo: o mais recente do SSE ou o inicial do POST /connect
+  const effectiveQr = qr.qrData || initialQr;
+  // Se temos QR code mas o SSE ainda está "connecting", consideramos waiting_scan
+  const effectiveStatus =
+    qr.status === 'connected' || qr.status === 'error' || qr.status === 'timeout'
+      ? qr.status
+      : effectiveQr
+      ? 'waiting_scan'
+      : 'connecting';
+  const effectiveError = qr.error || initError;
 
   return (
     <div className="min-h-screen bg-[#0b1326] p-4 md:p-8">
@@ -90,18 +127,18 @@ export default function OnboardingConnectPage() {
           {/* QR Code area */}
           <div className="bg-[#131b2e] rounded-2xl border border-[#222a3d] p-6">
             <div className="flex items-center justify-center min-h-[280px]">
-              {qr.status === 'connecting' && (
+              {effectiveStatus === 'connecting' && (
                 <div className="flex flex-col items-center gap-3">
                   <div className="w-8 h-8 border-2 border-[#4ff07f] border-t-transparent rounded-full animate-spin" />
                   <p className="text-sm text-[#bbcbb9]">Gerando código QR...</p>
                 </div>
               )}
 
-              {qr.status === 'waiting_scan' && qr.qrData && (
+              {effectiveStatus === 'waiting_scan' && effectiveQr && (
                 <div className="flex flex-col items-center gap-4">
                   <div className="bg-white rounded-xl p-4">
                     <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qr.qrData)}`}
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(effectiveQr)}`}
                       alt="QR Code"
                       width={220}
                       height={220}
@@ -114,7 +151,7 @@ export default function OnboardingConnectPage() {
                 </div>
               )}
 
-              {qr.status === 'connected' && (
+              {effectiveStatus === 'connected' && (
                 <div className="flex flex-col items-center gap-3 text-center">
                   <div className="w-16 h-16 rounded-full bg-[#4ff07f]/10 flex items-center justify-center">
                     <span className="material-symbols-outlined text-[#4ff07f] text-[32px]">
@@ -134,12 +171,12 @@ export default function OnboardingConnectPage() {
                 </div>
               )}
 
-              {qr.status === 'error' && (
+              {effectiveStatus === 'error' && (
                 <div className="flex flex-col items-center gap-3 text-center">
                   <span className="material-symbols-outlined text-red-400 text-[32px]">
                     error
                   </span>
-                  <p className="text-sm text-red-400">{qr.error || 'Erro ao conectar'}</p>
+                  <p className="text-sm text-red-400">{effectiveError || 'Erro ao conectar'}</p>
                   <button
                     onClick={() => window.location.reload()}
                     className="text-xs text-[#4ff07f] hover:underline"
@@ -149,7 +186,7 @@ export default function OnboardingConnectPage() {
                 </div>
               )}
 
-              {qr.status === 'timeout' && (
+              {effectiveStatus === 'timeout' && (
                 <div className="flex flex-col items-center gap-3 text-center">
                   <span className="material-symbols-outlined text-yellow-400 text-[32px]">
                     timer_off

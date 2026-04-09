@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+// Em produção (servido pelo próprio Express), usa caminhos relativos
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 export type QRStreamStatus = 'connecting' | 'waiting_scan' | 'connected' | 'error' | 'timeout';
 
