@@ -67,17 +67,19 @@ export const initiateConnection = async (userId: string): Promise<ConnectWhatsap
 
   const qrExpires = new Date(Date.now() + 60 * 1000) // 60 segundos
 
-  // Salvar ou atualizar sessão no banco
+  // Remove sessões antigas do usuário (desconectadas ou com QR expirado)
+  // Mantém apenas sessões ativas (connected)
+  await db.query(
+    `DELETE FROM whatsapp_sessions
+     WHERE user_id = $1 AND status != 'connected'`,
+    [userId]
+  )
+
+  // Inserir nova sessão
   const upsertResult = await db.query(
     `INSERT INTO whatsapp_sessions
        (user_id, unipile_account_id, status, qr_code, qr_expires_at)
      VALUES ($1, $2, 'connecting', $3, $4)
-     ON CONFLICT (user_id) DO UPDATE SET
-       unipile_account_id = $2,
-       status = 'connecting',
-       qr_code = $3,
-       qr_expires_at = $4,
-       updated_at = NOW()
      RETURNING id`,
     [userId, data.account_id, qrCode, qrExpires]
   )
