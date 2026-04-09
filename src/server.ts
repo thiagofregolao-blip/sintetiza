@@ -48,18 +48,20 @@ app.use(cors({
   credentials: true,
 }))
 
-// Rate limiting global
-app.use(rateLimit({
+// Rate limiting — só para /api/* (não aplica em arquivos estáticos do frontend)
+app.use('/api/', rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100,
+  max: 500, // 500 req / 15min por IP (suficiente pro polling + uso normal)
   message: { success: false, error: 'Muitas requisições. Tente novamente em 15 minutos.' },
   validate: { xForwardedForHeader: false },
+  // Não contar /status no rate limit (usado pelo polling do QR)
+  skip: (req) => req.path === '/whatsapp/status' || req.path === '/whatsapp/qr-stream',
 }))
 
-// Rate limiting mais apertado para auth
+// Rate limiting mais apertado para login (brute force protection)
 app.use('/api/auth/login', rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 20,
   message: { success: false, error: 'Muitas tentativas de login.' },
   validate: { xForwardedForHeader: false },
 }))
