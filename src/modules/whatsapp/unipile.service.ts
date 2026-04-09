@@ -92,14 +92,51 @@ export const initiateConnection = async (userId: string): Promise<ConnectWhatsap
 }
 
 // ============================================
-// Buscar status da sessão
+// Buscar status da sessão (com fallback de polling no Unipile)
 // ============================================
 export const getSessionStatus = async (userId: string): Promise<WhatsappSession | null> => {
   const result = await db.query(
     'SELECT * FROM whatsapp_sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1',
     [userId]
   )
-  return result.rows[0] || null
+  const session = result.rows[0] as WhatsappSession | undefined
+  if (!session) return null
+
+  // Se a sessão está em 'connecting' e tem account_id do Unipile,
+  // consulta o Unipile para ver se já foi conectada (fallback do webhook)
+  if (session.status === 'connecting' && session.unipile_account_id) {
+    try {
+      const response = await fetch(
+        `${UNIPILE_BASE_URL}/api/v1/accounts/${session.unipile_account_id}`,
+        { headers: unipileHeaders }
+      )
+
+      if (response.ok) {
+        const account = await response.json() as {
+          sources?: Array<{ status?: string }>
+          connection_params?: { im?: { phone_number?: string; name?: string } }
+        }
+
+        // Se algum source está OK, considera conectado
+        const isConnected = account.sources?.some(s => s.status === 'OK')
+        if (isConnected) {
+          const phone = account.connection_params?.im?.phone_number
+          const name = account.connection_params?.im?.name
+          await handleAccountConnected(session.unipile_account_id, phone, name)
+          // Re-busca a sessão atualizada
+          const updated = await db.query(
+            'SELECT * FROM whatsapp_sessions WHERE id = $1',
+            [session.id]
+          )
+          return updated.rows[0] || session
+        }
+      }
+    } catch (err) {
+      console.error('[Unipile] Erro ao verificar status:', (err as Error).message)
+    }
+  }
+
+  return session
 }
 
 // ============================================

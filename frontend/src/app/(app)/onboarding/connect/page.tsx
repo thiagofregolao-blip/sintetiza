@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQRStream } from '@/lib/sse';
-import { getToken, connectWhatsapp } from '@/lib/api';
+import { getToken, connectWhatsapp, getWhatsappStatus } from '@/lib/api';
 
 function StepDots({ current }: { current: number }) {
   return (
@@ -41,6 +41,8 @@ export default function OnboardingConnectPage() {
   const [token, setToken] = useState('');
   const [initialQr, setInitialQr] = useState<string | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
+  const [polledConnected, setPolledConnected] = useState(false);
+  const [polledInfo, setPolledInfo] = useState<{ phone?: string; name?: string }>({});
   const qr = useQRStream(token);
 
   useEffect(() => {
@@ -72,25 +74,52 @@ export default function OnboardingConnectPage() {
     };
   }, [token]);
 
+  // Polling: consulta status do WhatsApp a cada 3s como fallback do webhook
   useEffect(() => {
-    if (qr.status === 'connected') {
+    if (!token || polledConnected || qr.status === 'connected') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const status = await getWhatsappStatus();
+        if (status?.status === 'connected') {
+          setPolledConnected(true);
+          setPolledInfo({
+            phone: status.display_name || undefined,
+            name: status.display_name || undefined,
+          });
+        }
+      } catch {
+        // ignore errors, keep polling
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [token, polledConnected, qr.status]);
+
+  useEffect(() => {
+    if (qr.status === 'connected' || polledConnected) {
       const timer = setTimeout(() => {
         router.push('/onboarding/groups');
       }, 1500);
       return () => clearTimeout(timer);
     }
-  }, [qr.status, router]);
+  }, [qr.status, polledConnected, router]);
 
   // QR Code efetivo: o mais recente do SSE ou o inicial do POST /connect
   const effectiveQr = qr.qrData || initialQr;
-  // Se temos QR code mas o SSE ainda está "connecting", consideramos waiting_scan
-  const effectiveStatus =
-    qr.status === 'connected' || qr.status === 'error' || qr.status === 'timeout'
+  // Se polling detectou conexão OU SSE disse connected, consideramos connected
+  const isConnected = qr.status === 'connected' || polledConnected;
+  const effectiveStatus: 'connecting' | 'waiting_scan' | 'connected' | 'error' | 'timeout' =
+    isConnected
+      ? 'connected'
+      : qr.status === 'error' || qr.status === 'timeout'
       ? qr.status
       : effectiveQr
       ? 'waiting_scan'
       : 'connecting';
   const effectiveError = qr.error || initError;
+  const effectivePhone = qr.phone || polledInfo.phone || null;
+  const effectiveDisplayName = qr.displayName || polledInfo.name || null;
 
   return (
     <div className="min-h-screen bg-[#0b1326] p-4 md:p-8">
@@ -160,11 +189,11 @@ export default function OnboardingConnectPage() {
                   </div>
                   <div>
                     <p className="text-[#4ff07f] font-semibold">Conectado com sucesso!</p>
-                    {qr.displayName && (
-                      <p className="text-sm text-[#bbcbb9] mt-1">{qr.displayName}</p>
+                    {effectiveDisplayName && (
+                      <p className="text-sm text-[#bbcbb9] mt-1">{effectiveDisplayName}</p>
                     )}
-                    {qr.phone && (
-                      <p className="text-xs text-[#bbcbb9]">{qr.phone}</p>
+                    {effectivePhone && (
+                      <p className="text-xs text-[#bbcbb9]">{effectivePhone}</p>
                     )}
                   </div>
                   <p className="text-xs text-[#bbcbb9]">Redirecionando...</p>
