@@ -124,14 +124,19 @@ export const saveMessage = async (
   sessionId: string,
   event: UnipileWebhookEvent | any
 ): Promise<Message | null> => {
+  console.log(`[saveMessage] START user=${userId}, session=${sessionId}`)
+
   const msg = normalizeUnipileMessage(event)
   if (!msg) {
     console.warn('[saveMessage] Payload invalido, ignorando')
     return null
   }
 
+  console.log(`[saveMessage] Parsed: chat_id=${msg.chat_id}, provider=${msg.provider_chat_id}, is_group=${msg.is_group}, is_sender=${msg.is_sender}, sender=${msg.sender_name}, content=${msg.content.substring(0, 40)}`)
+
   // Ignorar mensagens enviadas pelo proprio usuario
   if (msg.is_sender) {
+    console.log(`[saveMessage] Ignorando: is_sender=true`)
     return null
   }
 
