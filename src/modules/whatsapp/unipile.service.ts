@@ -265,6 +265,18 @@ export const syncGroups = async (userId: string, unipileAccountId: string): Prom
     if (session.rows.length === 0) return
     const sessionId = session.rows[0].id
 
+    // Limpa grupos antigos com IDs Unipile instaveis (qualquer coisa sem @g.us)
+    // Isso migra dados de syncs antigos para o novo esquema com provider_id estavel
+    const deleted = await db.query(
+      `DELETE FROM groups
+       WHERE user_id = $1
+         AND whatsapp_chat_id NOT LIKE '%@g.us'`,
+      [userId]
+    )
+    if (deleted.rowCount && deleted.rowCount > 0) {
+      console.log(`[Unipile] Removidos ${deleted.rowCount} grupos com IDs antigos instaveis`)
+    }
+
     // Filtra apenas grupos (type === 1 ou provider_id terminando em @g.us)
     const groups = allChats.filter(
       c => c.type === 1 || c.provider_id?.endsWith('@g.us')
