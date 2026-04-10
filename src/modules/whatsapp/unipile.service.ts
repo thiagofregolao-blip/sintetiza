@@ -271,7 +271,11 @@ export const syncGroups = async (userId: string, unipileAccountId: string): Prom
     )
     console.log(`[Unipile] Grupos encontrados: ${groups.length}`)
 
+    // IMPORTANTE: usamos provider_id como whatsapp_chat_id (chave estavel: 120363...@g.us)
+    // porque o chat.id do Unipile muda entre sincronizacoes e webhooks.
+    // Isso garante que mensagens do webhook (que tem provider_chat_id) batem com o grupo.
     for (const chat of groups) {
+      const stableId = chat.provider_id || chat.id // fallback se provider_id faltar
       await db.query(
         `INSERT INTO groups
            (user_id, session_id, whatsapp_chat_id, name, participant_count, last_message_at, synced_at)
@@ -284,7 +288,7 @@ export const syncGroups = async (userId: string, unipileAccountId: string): Prom
         [
           userId,
           sessionId,
-          chat.id,
+          stableId,
           chat.name || 'Grupo sem nome',
           0,
           chat.timestamp ? new Date(chat.timestamp) : null,

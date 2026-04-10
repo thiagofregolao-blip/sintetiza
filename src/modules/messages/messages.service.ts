@@ -146,22 +146,28 @@ export const saveMessage = async (
 
   const chatType: 'group' | 'individual' = msg.is_group ? 'group' : 'individual'
 
+  // IMPORTANTE: usamos provider_chat_id como chave estavel para match com groups.whatsapp_chat_id
+  // porque o chat_id interno do Unipile pode mudar entre webhooks e sync.
+  // Fallback: tenta tambem o chat_id caso provider_chat_id esteja vazio.
+  const chatLookupKey = msg.provider_chat_id || msg.chat_id
+
   // Se for grupo, verifica se esta sendo monitorado
   let groupId: string | null = null
   if (chatType === 'group') {
     const group = await db.query(
       `SELECT id, is_monitored, is_excluded FROM groups
-       WHERE user_id = $1 AND whatsapp_chat_id = $2`,
-      [userId, msg.chat_id]
+       WHERE user_id = $1 AND (whatsapp_chat_id = $2 OR whatsapp_chat_id = $3)`,
+      [userId, chatLookupKey, msg.chat_id]
     )
 
     if (group.rows.length === 0) {
-      console.log(`[saveMessage] Grupo ${msg.chat_id} (${msg.chat_name}) nao sincronizado, ignorando`)
+      console.log(`[saveMessage] Grupo nao sincronizado: provider_chat_id=${msg.provider_chat_id}, chat_id=${msg.chat_id}, name=${msg.chat_name}`)
       return null
     }
 
     const { id, is_monitored, is_excluded } = group.rows[0]
     if (!is_monitored || is_excluded) {
+      console.log(`[saveMessage] Grupo ${msg.chat_name} nao monitorado, ignorando`)
       return null
     }
     groupId = id
